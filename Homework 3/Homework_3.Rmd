@@ -1,0 +1,262 @@
+---
+title: "Homework_3"
+author: "Sai Saketh Boyanapalli"
+date: "October 4, 2017"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning=FALSE}
+# library's required
+library(EnvStats)
+library(mlbench)
+library(reshape2)
+library(ggplot2)
+library(car)
+library(scales)
+library(gridExtra)
+library(Amelia)
+library(mice)
+library(VIM)
+```
+
+
+##1 Glass Identification
+
+####1(a)
+```{r message=FALSE, message=FALSE, warning=FALSE}
+library(mlbench)
+data("Glass") # loading Glass data
+names(Glass) # looking at column names for the data
+str(Glass) # looking at structure of the data
+```
+```{r, message=FALSE, warning=FALSE}
+library(reshape2)
+library(ggplot2)
+GlassMelt <- melt(Glass[,-10]) # melting data into one column
+```
+
+```{r, echo=FALSE}
+# Historam for each of the predictor variable.
+ggplot(GlassMelt,aes(x = value)) + 
+    facet_wrap(~variable,scales = "free_x") + 
+    geom_histogram(aes(y = ..ncount..)) + 
+  xlab("Value of predictor") + 
+  ylab("Frequency") +
+  ggtitle("Histogram of Predictor variable")
+```
+We can see that some of the histograms are skewed and some of them are normally distributed.
+```{r}
+ggplot(GlassMelt, aes(factor(variable), value))+ 
+  geom_boxplot() + facet_wrap(~variable, scale="free") +
+  xlab("Predictors") +
+  ggtitle("Boxplot of predictor variables")
+```
+Here we can see that there are lot of outliers in the data using a boxplot. except for Mg there are no outliers in the data.
+####1(b)
+I Choose Predictors 'K', 'Ba', 'Fe' as my skewed variables from the histogram
+#####1 (b) i)
+```{r}
+library(car)
+Glass$K <- abs(Glass$K) + 0.1  # using this because symbox only works for strictly positive values.
+Glass$Ba <- abs(Glass$Ba) + 0.1 # my pool of predictors are not strictly positive
+Glass$Fe <- abs(Glass$Fe) + 0.1
+symbox_K <- symbox(~ K, data = Glass)
+symbox_Ba <- symbox(~ Ba, data = Glass)
+symbox_Fe <- symbox(~ Fe, data = Glass)
+```
+In case of symbox transformation of K it fits perfects for power -0.5,  and it does not fit to powers for Ba and Fe it is fitting for powers -1, -0.5 
+#####1 (b) (ii)
+```{r}
+library(EnvStats) # to access Box-Cox fuction
+boxcox(Glass$K, lambda = c(-3,3), optimize = T) 
+boxcox(Glass$Ba, lambda = c(-2,2), optimize = T)
+boxcox(Glass$Fe, lambda = c(-1,1), optimize = T)
+```
+The optimal value of Lambda for K, Ba, Fe are 0.088, -0.582, 0.054
+####1(c)
+```{r, echo=FALSE}
+pca <- prcomp(Glass[,1:9], scale. = T, center = T) # pricipal component analysis on Glass Predictors
+prop.pca = pca$sdev^2/sum(pca$sdev^2)
+summary(pca)
+```
+After running Principal component analysis on Glass we can see that PC1 - PC7 holds about 99% of the variance in our data. upto PC5 can provide information about 90% of the data so,  we can reduce the dimensions from 9 - 5 using PCA.
+####1(d)
+```{r, echo=FALSE}
+lda <- MASS::lda(Type ~ .,data=Glass)
+prop.lda = lda$svd^2/sum(lda$svd^2)
+lda
+```
+We can see that Linear discriminants LD1 and LD2 capture around 93% feature separation in the data.
+```{r}
+
+plda <- predict(object = lda,
+
+                newdata = Glass[,1:9])
+
+dataset = data.frame(Type = Glass[,"Type"],
+
+                     pca = pca$x, lda = plda$x)
+
+p1 <- ggplot(dataset) + geom_point(aes(lda.LD1, lda.LD2, colour = Type, shape = Type), size = 2.5) + 
+
+  labs(x = paste("LD1 (", percent(prop.lda[1]), ")", sep=""),
+
+       y = paste("LD2 (", percent(prop.lda[2]), ")", sep=""))
+
+
+
+p2 <- ggplot(dataset) + geom_point(aes(pca.PC1, pca.PC2, colour = Type, shape = Type), size = 2.5) +
+
+  labs(x = paste("PC1 (", percent(prop.pca[1]), ")", sep=""),
+
+       y = paste("PC2 (", percent(prop.pca[2]), ")", sep=""))
+
+
+
+grid.arrange(p1, p2)
+```
+
+Here PCa classifies data on variance and LDA tries to classify data based on features. In this case LDA does a better job in differentiating predictor variables than PCA. 
+###Question 2 Missing Data
+####2 (a)
+```{r, echo=FALSE}
+library(Amelia)
+data("freetrade")
+withmiss <- lm(data=freetrade,tariff ~ year+country+polity+pop+gdp.pc+intresmi+signed+fiveop+usheg) # regular linear model.
+summary(withmiss)
+# List wise deletion
+FreeTradeCompleteDeletion <- na.omit(freetrade)
+listwise <- lm(data = FreeTradeCompleteDeletion, tariff ~ year+country+polity+pop+gdp.pc+intresmi+signed+fiveop+usheg)
+summary(listwise)
+```
+####2 (b)
+```{r, echo = F }
+# Perform regression using mean imputation
+TarrifMiss <- is.na(freetrade$tariff)#creating a logical vector with missing values from tarrif data frame.
+MeanimpTarrif <- freetrade # creating a Mean imputation tarrif data frame.
+MeanimpTarrif[TarrifMiss, "tariff"] <- mean(MeanimpTarrif$tariff, na.rm = T) # replacing missing values with mean tarrif values.
+meanTariff <- lm(data = MeanimpTarrif, tariff ~ year+country+polity+pop+gdp.pc+intresmi+signed+fiveop+usheg)
+summary(meanTariff)
+plot(meanTariff)
+```
+####2 (c)
+```{r, echo = F}
+# multivariate imputations with chained equations
+MITariff <- mice(freetrade, m=5, method = 'cart', maxit = 10) #using mice package and method 'cart' maxit set to 10
+lm.multipleimp <- with(MITariff, lm(tariff ~ year+country+polity+pop+gdp.pc+intresmi+signed+fiveop+usheg)) # perfroming lm on imputed data
+pooled_multiple_imp <- pool(lm.multipleimp) #pooling results to get the results of final iteration
+summary(pooled_multiple_imp) # summary
+```
+###2(d)
+In the above 3 cases the values for the Coefficients are different for each case, in case of listwise deletion we are reducing the scope of our data by removing all the rows without information this will reduce the variability in our data and the adjusted R - squared is found to be 0.9 in case of listwise deletion. Mean imputation tries to preserve the variability of the data by imputing the missing values with mean. but this case the data is skewed to a particular value because the missingness is imputed by mean now the data is skewed to the mean. In the above test some of the coefficients have a major change while some remain constant. the Adjusted R - square is 0.61. In the case of multiple imputation with chained equations it ries to preserve the variablity but but due to multiple iteraations the adjusted R - squared values goes down  to 0.8. ideally we want R - squared to be 1. here this was achieved close by listwise deletion.
+###Question 3 House prices data
+
+####3 (a) Explore and visualize data.
+```{r}
+housing_data <- read.csv("housingData.csv")
+missing <- aggr(housing_data)
+```
+We can see the variables with most missing values.
+This missingness in the variables can be due to other reasons for example if we take pool area into account not every house has a pool so, that the fact of mssingness there. 
+```{r}
+ggplot(aes(x = YearBuilt),data = subset(housing_data, !is.na(housing_data$YearBuilt))) +
+  geom_histogram(binwidth = 1) + 
+  scale_x_continuous(breaks = seq(1875, 2009, 10)) +
+  ggtitle('Frequency of houses built in each year!')
+```
+Here we can see that houses built over the year increased and peaked at year 2004. see a downward trend after that. this might be due to recession. 
+```{r}
+range(housing_data$YearBuilt) # Shows yaer built for oldest and newest house in data.
+```
+```{r}
+ggplot(aes(x = YearBuilt),data = subset(housing_data, !is.na(housing_data$YearBuilt))) +
+  geom_histogram() + 
+  ggtitle('Frequency of houses built in each year By Overall Quality') +
+  facet_wrap(~OverallQual, scales = "free_y")
+```
+```{r}
+ggplot(aes(x = YearBuilt),data = subset(housing_data, !is.na(housing_data$YearBuilt))) +
+  geom_histogram() + 
+  ggtitle('Frequency of houses built in each year By Overall Condition') +
+  facet_wrap(~OverallCond, scales = "free_y")
+```
+Here we can see that there are just 2 houses in very poor condition and there are lot of houses with Average > Above average > Good Condition. and most of them are built after year 1940.
+We can see that half of the houses are Above Average in overall quality and condition.
+```{r}
+ggplot(aes(x = GarageCond, y = GarageQual), data = subset(housing_data, !is.na(housing_data$GarageQual))) +
+  geom_point() + ggtitle('Relationship between garage condition and Quality')
+```
+Here we can see that AboveAverage Garage quality does not have BelowAvg Garage Condition and viceVersa.
+```{r}
+ggplot(aes(x = YearBuilt), data = housing_data) +
+  geom_histogram(aes(color = Foundation),binwidth = 1) +
+  ggthemes::theme_economist() +
+  scale_x_continuous(breaks = seq(1875,2009, 10))
+  ggtitle('Different Foundations used over the years')
+```
+We can see that Poured Concrete foundation of houses started around year 1990.
+
+####3 (b)
+```{r}
+# some feature construction
+housing_data$YearsUsed <- housing_data$YrSold - housing_data$YearBuilt # No of year house was used.
+housing_data$TotalNoFullBath <- housing_data$BsmtFullBath - housing_data$FullBath # Total number of fullbath's in the house.
+housing_data$TotalNohalfBath <- housing_data$BsmtHalfBath - housing_data$HalfBath # Total number of fullbath's in the house.
+housing_data$TotalBathRooms <- housing_data$TotalNoFullBath + housing_data$TotalNohalfBath # Total no of bathrooms in the house.
+housing_data$TotalFloorsqft <- housing_data$X1stFlrSF + housing_data$X2ndFlrSF # Total Floor area.
+# As the overall quality and the condition of the house mostly represents a single thing lets combine them into a single variable.
+housing_data$OverallQualCond = (housing_data$OverallQual + housing_data$OverallCond)/2 # dividing by 2 to keep a constant scale.
+summary(housing_data$OverallQualCond)
+```
+####3 (c)
+I have made a feature called years used because this might be an important factor when cosidering buying a used house.
+I have combined overall Quality and condition beacuse these two try to represent the same feature.
+Total no of bathrooms in the house, this is an important factor for some when buying a new house.
+Total square ft is also an important paramenter so, i have created that.
+I have created feature for total no of full bath and total no of becoz that an important feature when buying an house.
+I have added all the features to the data frame.
+### Question 4 Kaggle.com { a little more data understanding
+####4 (a)
+https://www.kaggle.com/c/nyc-taxi-trip-duration
+This competition is to build a model that predicts the total ride duration of taxi trips in New York City. primary dataset is one released by the NYC Taxi and Limousine Commission, which includes pickup time, geo-coordinates, number of passengers, and several other variables.
+####4 (b)
+```{r}
+taxi <- read.csv("train.csv")
+dim(taxi)
+# there are 1458644 rows and 11 columns/variables
+# this data set is too big for my computer
+taxiSubset <- taxi[1:1000,]
+# descriptive stats
+summary(taxiSubset$passenger_count)
+summary(taxiSubset$trip_duration)
+
+# visualize passenger count
+ggplot(aes(x = passenger_count), data = taxiSubset) +
+  geom_histogram(binwidth = 2) +
+  ggtitle('histogram of Passenger Count')
+
+ggplot(aes(x = passenger_count, y = trip_duration), data = subset(taxiSubset, taxiSubset$trip_duration < 1000)) +
+  geom_point()
+```
+There is no clear relationship between passenger count and trip duaration.
+```{r}
+boxplot(taxiSubset$trip_duration)
+```
+From this boxplot we can clearly see that there are some outliers in trip duration
+```{r}
+taxiNew <- subset(taxiSubset, trip_duration < 100 & trip_duration > 5)
+boxplot(taxiNew$trip_duration)
+```
+So, the extremely long trip duaration and very short trip duration were outliers in the data.
+```{r}
+boxplot(taxiSubset$passenger_count)
+```
+We can see there are few cases with 4, 5 and 6 passengers which is basically not a outlier but less frequent trend in passenger count.
+```{r}
+aggr(taxiSubset)
+```
+we can see that this dataset is complete and there are no missing variables.

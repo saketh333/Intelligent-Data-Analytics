@@ -1,0 +1,310 @@
+---
+title: "HomeWork_2"
+author: "Sai Saketh Boyanapalli"
+date: "September 17, 2017"
+output: word_document
+---
+``` {r, message=FALSE, echo = F}
+# All library's used for this homewrok
+library(devtools)
+library(Amelia)
+library(ggplot2)
+library(ggbiplot)
+library(reshape2)
+library(VIM)
+library(stats)
+library(robustbase)
+library(rmarkdown)
+library(asbio)
+library(mice)
+library(fitdistrplus)
+library(HSAUR)
+library(jpeg)
+```
+1 Concordance and Discordance
+Given vectors
+``` {r}
+library(asbio) # this contains the fuction Condis
+x = c(3,4,2,1,7,6,5) # vector x
+y = c(4,3,7,6,5,2,1) # vector y
+ConDis.matrix(x,y) # Finding concordance and discordance pairs in vectors x and y
+```
+So if we look at the above matrix there are 6 Concardant Pairs and 15 Discordant Pairs.
+Question 2 Outlier example
+ANS. Its us Humans, The animal Selected at the end is Human.
+Question 3 Generating data and advanced density plots
+3 a) 
+```{r, message=FALSE, warning=FALSE}
+# creating a data frame with 500 rows and four colums a, b, c, d
+a <- rnorm(500) #normal distribution mean  = 0  and sd = 1.
+b <- runif(500) #uniform distribution min = 0 and max = 1.
+c <- rbeta(500, 1, 2) #beta distribution with shape 1, 2 = 1, 2
+d <- rbinom(500, 3, 0.33) #binomial distribution with size 3 and probability 0.33 
+df <- data.frame(a,b,c,d) # using data frame fuction to create data frame
+library(reshape2)
+df2 <- melt(df, variable.name = "GroupVar") #using the melt fuction and changing all variables to single variable GroupVar.
+```
+3 b)
+```{r, echo=FALSE}
+library(ggplot2)
+qplot(GroupVar, data = df2, main= "Densities for a,b,c and d", ylab = "Density", geom = 'density', fill = GroupVar)
+```
+Question 4 Shark Attacks
+4 a)
+``` {r}
+GSAF <- read.csv("ISE 5103 GSAF5.csv") 
+```
+If we closely look at the data, during the earlier stages the technology and communications are not as par as what we have today. so the data might be missing lot of useful information and analysis of this can be misleading. Recency and Obsolescence.
+4 b)
+```{r, message=FALSE, warning=FALSE}
+GSAFData <- GSAF[c(GSAF$Year >= 2000),] # selecting attacks from year 2000 onwards
+```
+4 c)
+```{r}
+DateTimeObject <- as.Date(GSAFData$Date, "%d-%b-%y")
+GSAFData <- data.frame(GSAFData, DateTimeObject)
+```
+4 d)
+```{r}
+mis <- (sum(is.na(GSAFData$DateTimeObject))/nrow(GSAFData)) * 100 # Lets see the amount of data missing from DateTimeObject Field
+message("Percentage of missing values: ", mis)
+```
+4 e)
+```{r}
+GSAFData <- GSAFData[!is.na(GSAFData$DateTimeObject),] # deleting rows with NA values in column DateTimeObject
+```
+4 f) i)
+```{r}
+DaysBetween <- as.numeric(diff(GSAFData$DateTimeObject)) # difference in days on DateTimeObject
+# adding DaysBetween to DataFrame with first row element as NA
+GSAFData <- data.frame(GSAFData, DaysBetween = c(NA, DaysBetween))
+GSAFData$DaysBetween[GSAFData$DaysBetween < 0 | GSAFData$DaysBetween > 100] <- 0
+```
+4 f) ii)
+```{r, echo=FALSE}
+library(robustbase)
+boxplot(GSAFData$DaysBetween, cex = 0.75) # boxplot for Days Between Shark Attack
+```
+```{r, echo=FALSE}
+# Adjacent Boxplot for days between shark attack
+adjbox(GSAFData$DaysBetween)
+```
+We can see there are many outliers in the boxplot and adj box plot tries to adjust this but we still see lot of outliers and most data is between 0 - 10 days.
+4 f) iii)
+WE can see from the boxplot that there are lot of ouliers so, neither of them are applicable in this case. Since Grubbs's test just points one outlier in the data at a time so, its very hard to remove outliers one by one and in case of Generalized ESD it will allow to detect multiple outliers but is not robust. 
+4 g)
+```{r}
+library(ggplot2)
+library(grid)
+library(gridExtra)
+GSAFData <- subset(GSAFData, !is.na(GSAFData$DaysBetween))
+p <- ppoints(100)          # 100 equally spaced points on (0,1), excluding endoints
+q <- quantile(GSAFData$DaysBetween, p=p)  #  percentiles of the the same distribution
+qqplotShark <- qqplot(qexp(p), q, main = "Days Between Attacks Q-Q Plot",
+       xlab="Theoretical Quantiles", ylab = "Sample Quantiles")
+qqlineShark <- qqline(q, distribution = qexp)
+```
+4 h)
+```{R}
+DaysB <- GSAFData$DaysBetween
+fitexp <- fitdist(DaysB, "exp")
+par(mfrow=c(2,2))
+p1 <-ppcomp(list(fitexp), legendtext = c("Exponential"),main= "percentile - percentile plot")
+p2 <- qqcomp(list(fitexp), legendtext = c("Exponential"),main= "quantile - quantile plot")
+p3 <- denscomp(list(fitexp), legendtext = c("Exponential"),
+         xlab = "DaysBetween Attacks", main = "Densities")
+p4 <- cdfcomp(list(fitexp), legendtext = c("Exponential"),
+        xlab = "Days Between Attacks", ylim = c(0,1),main="CDF (theoritical/Empirical)")
+```
+4 i)
+```{R}
+fitp <- fitdist(DaysB, "pois" ,method="mme") #using fitdist, fit of poission distribution to data on moment matching. 
+plot(fitp) # plotting the fitdsist
+```
+I respond to the claim positively, from the both graphs above the empirical and theoretical values don't match perfectly but kind of line up.
+Earlier we have questioned on timeliness of the data so, and While converting the date to date object in R we have skipped through lot of data 
+Question 5 5 a)
+```{r}
+library(Amelia)
+library(VIM)
+library(mice)
+data("freetrade") # Importing freetrade
+missmap(freetrade) # Using the missmap fuction to plot missing data
+summary(aggr(freetrade)) # using summary and aggregate fuction to look at all the mssing values in dataFrame.
+```
+We can see that tariff is missing most of the data and in other variables some have missing values and some don't 
+5 b)
+```{r, echo=FALSE}
+chisq.test(freetrade$tariff, freetrade$country, correct=FALSE) # Pearson's Chi - Squared Test on Tariff Variable
+```
+Here we can see that the p - value is less than 0.05 So, we reject the null hypothesis and conclude that 2  - variables are dependent.
+```{r, echo=FALSE}
+DropNepal <- freetrade[!freetrade$country == 'Nepal',] # removing Nepal
+chisq.test(table(DropNepal$tariff,DropNepal$country)) # Storing columns tariff and country into a table and perfroming chi -sqaure test on this table
+```
+Again we get p - value less than 0.05 so, we reject null hypotheis and conclude that two variables are dependent.
+```{r, echo=FALSE}
+DropPhillipines <- freetrade[!freetrade$country == 'Philippines',] # removing Philippines
+chisq.test(table(DropPhillipines$tariff,DropPhillipines$country)) # Storing columns tariff and country into a table and perfroming chi -sqaure test on this table
+```
+Again we get p - value less than 0.05 so, we reject null hypotheis but the p value is increasing for phillipines.
+Missingness in tarrif is dependent on Country and There is no effect removing Nepal and becomes independent if we remove Philippines.
+Question 6 Principal Component Analysis
+6 a) i)
+```{r}
+data("mtcars") # importing data mtcars
+corMat <- cor(mtcars, mtcars) # creating corelation matrix using method Kendall 
+```
+6 a) ii)
+```{r, include=FALSE}
+library(RcppEigen) # Library to access eigen
+eigen(corMat) # Gives Eigen values and Eigen vectors.
+```
+6 a) iii)
+```{r, include=FALSE}
+mtCarsP <- prcomp(mtcars, scale = T) # perfroming Prinicipal component analysis on mtcars.
+```
+Principal components match with eigen vectors.
+6 a) iv)
+```{r}
+mtCarsP$rotation[,1]%*%mtCarsP$rotation[,2]
+```
+we can see that the dot product of two PCA components is 0 so, we can say that they are orthogonal to each other.
+6 b) i)
+```{r, results='hide'}
+data("heptathlon")
+apply(heptathlon[,1:8],2,hist)
+```
+I can say that the distributions are reasonably normal.
+6 b) ii)
+```{r, results='hide'}
+library(outliers)
+apply(heptathlon[,1:8],2,grubbs.test) # applying Grubb's test on all coulmns
+```
+According to this test G.launa is an outlier. For events run800m, Longjump, Highjump, Hurdles.
+```{r}
+# removing Outlier
+heptathlon1 <- heptathlon[-25,]
+```
+6 b) iii)
+```{r}
+goodlargevalues <- function(max,columnName){
+ for (v in 1:nrow(heptathlon)) {
+  heptathlon[v,columnName] <- max - heptathlon[v,columnName]
+  
+ }
+
+  return(heptathlon)
+}
+# making large values good for 200m, 800m run and hurdles
+heptathlon2 = goodlargevalues(max(heptathlon$run200m), "run200m")
+heptathlon2 = goodlargevalues(max(heptathlon$run800m), "run800m")
+heptathlon2 = goodlargevalues(max(heptathlon$hurdles), "hurdles")
+```
+6 b) iv)
+```{r}
+hpca <- prcomp(heptathlon[,1:7], scale=T) # principal component analysis on heptathlon
+```
+6 b) v)
+```{r, echo=FALSE}
+data("heptathlon")
+library(ggbiplot)
+ggbiplot(hpca, choices = 1:2, scale = 1, circle = 'TRUE', obs.scale = 1, var.scale = 1, ellipse = T, labels.size = 3, pc.biplot = T)
+```
+Here vectors represent events and points represent Atlethes. 
+6 b) vi)
+```{r, echo=FALSE}
+plot(heptathlon, hpca$x[,1])
+```
+6 c) i)
+```{r, echo=FALSE}
+digits <- read.csv("classDigits.csv")
+digits1 <- digits[,-1]
+pcaclass <- prcomp(digits1, scale. = F)
+eigenvectors <- pcaclass$rotation
+head(eigenvectors[,1:5], 3)
+```
+6 c) ii)
+```{r}
+digitMatrix <- matrix(pcaclass$center,28,28,byrow=T)                         # Provide a 28*28 matrix for all mean values byrow and call it"digitmatrix".
+library(jpeg)
+writeJPEG(digitMatrix,target="meanDigit.jpg") 
+```
+6 c) iii)
+```{r}
+imageReconstruction <- function(k,imageno,imagefilename){
+  #This takes argument k = no of principal components, image no to be selected, output file name. 
+reconstruct <- pcaclass$x[,1:k]%*%t(pcaclass$rotation[,1:k])
+completeReconstruct = scale(reconstruct, center = -1 *pcaclass$center)
+writeJPEG(matrix(completeReconstruct[imageno,],28,28,byrow=TRUE), target = imagefilename)
+}
+imageReconstruction(5,15,"image15,k5")
+imageReconstruction(20,15,"image15,k5")
+imageReconstruction(100,15,"image15,k5")
+imageReconstruction(5,100,"image15,k5")
+imageReconstruction(20,100,"image15,k5")
+imageReconstruction(100,100,"image15,k5")
+```
+6 c) iV)
+```{r}
+classTest <- read.csv("class7test.csv") # reading data
+classTest1 <- classTest[,-c(1,2,787)] # removing colums 1, 2, 787
+classTestReconstruct = scale(classTest1, center = pcaclass$center, pcaclass$scale)%*%pcaclass$rotation
+```
+```{r, echo=FALSE}
+
+# Average mahalanobis distances between the images and the Digit class data. 
+mahalanobis(classTestReconstruct[1,1:90],classTestReconstruct[2,1:90], cov = cov(pcaclass$x[,1:90]))
+mahalanobis(classTestReconstruct[1,1:90],classTestReconstruct[3,1:90], cov = cov(pcaclass$x[,1:90]))
+mahalanobis(classTestReconstruct[1,1:90],classTestReconstruct[4,1:90], cov = cov(pcaclass$x[,1:90]))
+mahalanobis(classTestReconstruct[1,1:90],classTestReconstruct[5,1:90], cov = cov(pcaclass$x[,1:90]))
+mahalanobis(classTestReconstruct[1,1:90],classTestReconstruct[6,1:90], cov = cov(pcaclass$x[,1:90]))
+mahalanobis(classTestReconstruct[1,1:90],classTestReconstruct[7,1:90], cov = cov(pcaclass$x[,1:90]))
+mahalanobis(classTestReconstruct[2,1:90],classTestReconstruct[3,1:90], cov = cov(pcaclass$x[,1:90]))
+mahalanobis(classTestReconstruct[2,1:90],classTestReconstruct[4,1:90], cov = cov(pcaclass$x[,1:90]))
+mahalanobis(classTestReconstruct[2,1:90],classTestReconstruct[5,1:90], cov = cov(pcaclass$x[,1:90]))
+mahalanobis(classTestReconstruct[2,1:90],classTestReconstruct[6,1:90], cov = cov(pcaclass$x[,1:90]))
+mahalanobis(classTestReconstruct[2,1:90],classTestReconstruct[7,1:90], cov = cov(pcaclass$x[,1:90]))
+mahalanobis(classTestReconstruct[3,1:90],classTestReconstruct[4,1:90], cov = cov(pcaclass$x[,1:90]))
+mahalanobis(classTestReconstruct[3,1:90],classTestReconstruct[5,1:90], cov = cov(pcaclass$x[,1:90]))
+mahalanobis(classTestReconstruct[3,1:90],classTestReconstruct[6,1:90], cov = cov(pcaclass$x[,1:90]))
+mahalanobis(classTestReconstruct[3,1:90],classTestReconstruct[7,1:90], cov = cov(pcaclass$x[,1:90]))
+mahalanobis(classTestReconstruct[4,1:90],classTestReconstruct[5,1:90], cov = cov(pcaclass$x[,1:90]))
+mahalanobis(classTestReconstruct[4,1:90],classTestReconstruct[6,1:90], cov = cov(pcaclass$x[,1:90]))
+mahalanobis(classTestReconstruct[4,1:90],classTestReconstruct[7,1:90], cov = cov(pcaclass$x[,1:90]))
+mahalanobis(classTestReconstruct[5,1:90],classTestReconstruct[6,1:90], cov = cov(pcaclass$x[,1:90]))
+mahalanobis(classTestReconstruct[5,1:90],classTestReconstruct[7,1:90], cov = cov(pcaclass$x[,1:90]))
+mahalanobis(classTestReconstruct[6,1:90],classTestReconstruct[7,1:90], cov = cov(pcaclass$x[,1:90]))
+```
+```{r}
+for (i in 1:7){
+  for (j in 1:7){
+   x<- mahalanobis(classTestReconstruct[i,1:90],classTestReconstruct[j,1:90], cov = cov(pcaclass$x[,1:90]))
+  }
+}
+x
+
+
+```
+
+```{r}
+# look at screeplots
+
+ggscreeplot(p,type = "pev", k = 100)
+
+
+v <- as.numeric(p$center)
+meandigit <- matrix(v/255,28,28, byrow = T)
+
+
+#create a mean centered version of the original image
+meanCentered <- sweep(classDigits[,2:785],2,p$center, check.margin = T)
+
+
+# eigen digits
+
+v <- as.numeric(p$rotation[,k])
+
+
+
+```

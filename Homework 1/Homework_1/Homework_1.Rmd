@@ -1,0 +1,244 @@
+---
+title: "Homework_1"
+author: "Sai Saketh Boyanapalli"
+date: "August 29, 2017"
+output:
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+#Packages required
+```{r}
+library(moments)
+library(plyr)
+library(datasets)
+```
+
+## Question 1
+
+# 1 Using R: Vectors
+(a) Create a vector with 10 numbers (3, 12, 6, -5, 0, 8, 15, 1, -10, 7) and assign it to x.
+```{r}
+x <- c(3, 12, 6, -5, 0, 8, 15, 1, -10, 7)
+x
+```
+
+(b) Using the commands seq, min, and max with one line of code create a new vector y with 10 elements
+ranging from the minimum value of x to the maximum value of x.
+``` {r}
+y <- seq(min(x),max(x),length.out = 10)
+y
+```
+
+(c) Compute the sum, mean, standard deviation, variance, mean absolute deviation, quartiles, and
+quintiles for x and y.
+```{r}
+
+#sum of x and y
+sum(x)
+sum(y)
+
+#mean of x and y
+mean(x)
+mean(y)
+
+#standard deviation of x and y
+sd(x)
+sd(y)
+
+#variance of x and y
+var(x)
+var(y)
+
+#mean absolute deviation of x and y
+mad(x)
+mad(y)
+
+#quartiles of x and y
+quantile(x)
+quantile(y)
+
+#quintiles of x and y
+quantile(x,probs = seq(0,1,0.2))
+quantile(y,probs = seq(0,1,0.2))
+
+```
+
+(d) Create a new 7 element vector z by using R to randomly sample from x with replacement.
+```{r}
+z<- sample(x,7, replace = TRUE)
+z
+```
+(e) Find a package (or packages) that provide the statistical measures skewness and kurtosis. Use the
+appropriate functions from the package to calculate the skewness and kurtosis of x.
+
+The Skewness and Kurtosis functions are available in moments package.
+```{r}
+skewness(x)
+kurtosis(x)
+```
+
+(f) Use t.test() to compute a statistical test for differences in means between the vectors x and y.
+Are the differences in means signifcant?
+```{r}
+t.test(x,y)
+```
+
+(g) Sort the vector x and re-run the t-test as a paired t-test.
+```{r}
+sorted_x <- sort(x)
+t.test(sorted_x,y,paired = TRUE)
+```
+(h) Create a logical vector that identifies which numbers in x are negative.
+```{r}
+neq_x <- x[x<0]
+```
+(i) Use this logical vector to remove all entries with negative numbers from x. (Make sure to overwrite
+the vector x so that the new vector x has 8 elements!)
+```{r}
+x <- x[!x %in% neq_x]
+x
+```
+
+##Question 2
+#Using R: Introductory data exploration
+
+This exercise relates to the College data set, which can be found in the file \College.csv" in D2L. The
+file contains a number of variables for 777 different universities and colleges in the US.
+
+#(a) 
+Use the read.csv() function to read the data into a data frame in R. Call the data frame college.
+Make sure that you have the directory set to the correct location for the data (or that the data is
+in the same directory as the RStudio project).
+```{r}
+college <- read.csv("college.csv",header = TRUE)
+head(college)
+```
+#(b) 
+
+```{r}
+# this will assisgn the row names of the data frame to college names
+rownames (college) <- college [,1]
+View (college )
+head(college)
+
+# Now that we have assigned each row to the appropriate college name we can remove the column with college names
+college <- college [,-1]
+head(college)
+```
+#(c)
+(i)
+summary() function will give us the summary of the data
+```{r}
+summary(college)
+```
+(ii)
+```{r}
+?pairs # using ? before a function shows us the documentation for it.
+pairs(college[,1:10],college)
+```
+(iii)
+```{r}
+# This function creates a boxplot for no of OutState students in private colleges
+plot(college$Private,college$Outstate,main = "OutState students in Private College", xlab = "Private",ylab = "Outstate" )
+```
+iv. Using the following bit of code you will create a new qualitative variable, called Elite by
+binning the Top10perc variable. That is, Elite will classify the universities into two groups
+based on whether or not the proportion of students coming from the top 10% of their high
+school classes exceeds 50%.
+Add comments to each line below explaining what the corresponding code is doing and then
+run the code.
+```{r}
+Elite <- rep ("No", nrow(college )) # this line creates a list with value 'NO' with the length set to no of rows in college. using rep function. 
+Elite [college$Top10perc >50] <- "Yes" # In this line the college with top10percent greater than 50, the elite value is set to "Yes"
+Elite <- as.factor (Elite) #The values in Elite are factored to two levels    
+college <- data.frame(college ,Elite) # Elite is addes as one of the variables to college data frame.
+```
+
+v. Use the summary() function to see how many elite universities there are.
+```{r}
+summary(college$Elite)
+```
+we can see there are 78 elite students in total.
+vi.
+```{r}
+plot(college$Elite,college$Outstate,main = "Outstate elite students", xlab = "Elite students", ylab = "OutState")
+```
+we can clearly see that there are more outstate elite students.
+
+vii. Use the hist() function to produce some histograms with diering numbers of bins for a
+few of the quantitative variables.
+```{r}
+par(mfrow=c(2,2)) # this command will divide plot window into 4 sections
+hist(college$Outstate,breaks = 10) # this will create a Histogram.
+hist(college$Apps,breaks = 5) # breaks is used to set no of bins.
+hist(college$Accept,breaks = 15)
+hist(college$Top10perc,breaks = 6)
+
+```
+##Question 3 
+#Using R: Manipulating data in data frames
+(a) Load the data frame baseball in the plyr package. Use ?baseball to get information about the
+data set and definitions for the variables.
+```{r}
+data("baseball") # data is used to load a specific data set
+?baseball
+
+```
+(b) You will calculate the on base percentage for each player, but first clean up the data:
+* Before 1954, sacrifice flies were counted as part of sacrifice hits, so for players before 1954,sacrifice flies (i.e. the variable sf) should be set to 0.
+```{r}
+baseball$sf[baseball$year < 1954] <- 0
+```
+
+* Hit by pitch (the variable hbp) is often missing { set these missings to 0.
+```{r}
+baseball$hbp[is.na(baseball$hpb)] <- 0
+```
+
+* Exclude all player records with fewer than 50 at bats (the variable ab).
+```{r}
+baseball <- baseball[-c(baseball$ab < 50), ]
+```
+
+(c) Compute on base percentage in the variable obp according to the formula:
+```{r}
+obp <-((baseball$h + baseball$bb + baseball$hbp)/(baseball$ab + baseball$bb + baseball$hbp + baseball$sf)) 
+baseball <- data.frame(baseball,obp)
+```
+(d) Sort the data based on the computed obp and print the year, player name, and on base percentage for the top five records based on this value.
+```{r}
+Sorted_obp <- baseball[order(-obp) , ] # (-obp indicates decreasing order)
+top_five <- Sorted_obp[1:5, ]
+top_five[,c("year","id","obp")]
+```
+##Question 4 
+#Using R: aggregate() function
+(a) Load the quakes data from the datasets package.
+```{r}
+data("quakes")
+```
+(b) Plot the recorded earthquake magnitude against the earthquake depth using the plot command.
+```{r}
+plot(quakes$depth,quakes$mag,main ="earthquake magnitude against the earthquake depth", xlab = "depth",ylab = "magnitude")
+```
+(c) Use aggregate to compute the average earthquake depth for each magnitude level. Store these results in a new data frame named quakeAvgDepth.
+```{r}
+quakeAvgDepth <- aggregate(quakes$depth ~ quakes$mag,quakes, FUN = mean)
+```
+(d) Rename the variables in quakeAvgDepth to something meaningful.
+```{r}
+colnames(quakeAvgDepth) <- c("Magnitude of Earthquake","corresponding_Average_Depth")
+head(quakeAvgDepth)
+```
+(e) Plot the magnitude vs. the average depth.
+```{r}
+plot(quakeAvgDepth$corresponding_Average_Depth,quakeAvgDepth$`Magnitude of Earthquake`,main="Magnitude vs. the Average Depth of Quake",xlab="Average Depth",ylab="Magnitude")
+```
+(f) From the two plots, do you think there is a relationship between earthquake depth and magnitude?
+
+From the Two graphs we can see that the depth of the quake decreases with the increase in magnitude.
+

@@ -1,0 +1,436 @@
+---
+title: "Homework_4"
+author: "Sai Saketh Boyanapalli"
+date: "October 23, 2017"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = FALSE,
+	message = FALSE,
+	warning = FALSE
+)
+```
+
+```{r, echo = TRUE}
+library(mlbench)
+library(car)
+library(EnvStats)
+library(asbio)
+library(MASS)    
+library(outliers) 
+library(ggplot2)   
+library(reshape2)  
+library(Amelia)    
+library(mice)
+library(HSAUR2)
+library(VIM)
+library(dplyr)
+library(e1071)
+library(tidyr)
+library(fitdistrplus)
+library(stats)
+library(robustbase)
+library(gridExtra)
+library(memisc)
+library(pls)
+library(lars)
+library(glmnet)
+library(caret)
+library(elasticnet)
+library(lattice)
+```
+
+## Question 1 Predicting House Prices
+
+```{r, , echo = TRUE}
+housedata<- read.csv("housingData2.CSV") # reading data into r
+```
+
+```{r Data Cleaning, include=FALSE, echo=TRUE}
+# Removing the unnecessary variables(X,id,X.1)
+housedata<-housedata[,-c(1,2,76)]
+
+# Trying to find the percentage of missing values in each column
+miss<- data.frame(colSums(is.na(housedata)))
+missinginfo<-data.frame(colMeans(is.na(housedata)))
+sum(is.na(housedata)) / (nrow(housedata) *ncol(housedata))
+missinginfo
+
+# Breaking the data into columns containing categorical and Numeric
+housenum<-housedata %>% select_if(is.numeric)
+housecat <- housedata %>% select_if(is.factor)
+
+# Imputation
+compdata<-mice(housedata, m=1, method='cart', printFlag=FALSE)
+compdata<- mice::complete(compdata)
+
+# Converting few variables into factors
+cols<-c(colnames(housecat))
+compdata[cols] <- lapply(compdata[cols], factor)
+
+# Removing variables with high percentage of missing values
+compdata <- compdata%>%
+  dplyr::select(-c(Alley, PoolQC, Fence, MiscFeature))
+
+# Verifying that there are no missing values
+sum(sapply(compdata, function(x) { sum(is.na(x)) }))
+
+# Transformation of the Output variable
+compdata$SalePrice<-log(housedata$SalePrice +1)
+
+# Training and Test data
+trainx<-compdata[101:1000,]
+valx<-compdata[1:100,]
+y<-compdata[101:1000,69]
+```
+
+## (a)
+
+```{r, include=FALSE, echo = TRUE}
+#OLS Regression
+model_ols<- lm(SalePrice~.,data=trainx)
+mod_ols_sum<-summary(model_ols)
+```
+
+```{r, include=FALSE}
+cat("AIC is ",AIC(model_ols))
+cat("\nBIC is", BIC(model_ols))
+cat("\nAdjusted R squared is ",mod_ols_sum$adj.r.squared)
+cat("\nCoefficients are ", mod_ols_sum$coefficients)
+mse1 <- mean(residuals(model_ols)^2)
+rmse1 <- sqrt(mse1)
+cat("\nroot mean square error",rmse1)
+cat("\nMulti collinearity is not yet addressed so we cannot get the value of VIF")
+
+ols.pred <- predict(model_ols, valx)
+cat("RMSE test of OLS Step in test data is",sqrt(mean(ols.pred - (valx$SalePrice))^2))
+```
+
+
+## Modelling using Step wise variable selection.
+
+```{r, echo = TRUE, include= FALSE}
+# Stepwise Regression
+# Our Best Model
+model_step<- stepAIC(model_ols,direction = "both")
+model_step_sum<-summary(model_step)
+```
+
+## Formula for the model using STEP.
+
+```{r, echo = TRUE}
+ols_step <-  lm(formula(model_step), data = trainx)
+```
+
+```{r, include=FALSE}
+cat("AIC is ",AIC(model_step))
+
+cat("\nBIC is", BIC(model_step))
+
+cat("\nVIF is", vif(model_step))
+
+cat("\nAdjusted R squared is ",model_step_sum$adj.r.squared)
+
+mse2 <- mean(residuals(model_step)^2)
+rmse2 <- sqrt(mse2)
+
+cat("\nroot mean square error",rmse2)
+
+ols_step.pred <- predict(model_step, valx)
+cat("RMSE test of OLS Step in test data is",sqrt(mean(ols_step.pred - (valx$SalePrice))^2))
+
+```
+
+
+### i)
+
+The values of AIC, BIC, Adjusted R - squared, RMSE, VIF and Coefficeints for the best fitter model.
+
+```{r}
+ols_step <-  lm(formula(model_step), data = trainx)
+ols_step_sum <- summary(ols_step)
+```
+
+
+```{r}
+cat("AIC is ",AIC(ols_step))
+cat("\nBIC is", BIC(ols_step))
+cat("\nAdjusted R squared is ", ols_step_sum$adj.r.squared)
+cat("\nroot mean square error",rmse1)
+cat("\n Average value of VIF is", mean(vif(ols_step)))
+cat("\nvalue of VIF's\n",vif(ols_step))
+```
+
+#### RMSE
+
+```{r}
+ols_step.pred <- predict(ols_step, valx)
+cat("RMSE test of Best OLS Model in test data is",sqrt(mean(ols_step.pred - (valx$SalePrice))^2))
+```
+
+### Regression Coefficient
+
+```{r}
+# Regression coefficients
+cat("\nCoefficients are ", ols_step$coefficients)
+```
+
+## ii)
+
+```{r}
+plot(model_step)
+```
+
+From the above plots
+
+We can see that residuals pattern seems to be random.
+
+In case of our Normal QQ Plot except the few indicated outliers it also looks to follow normal distribution.
+
+Standardized Residual vs Fitted shows observation no 402 as outlier.
+
+Residual vs leverage also shows 402 as possible outlier 
+
+```{r}
+# influential plot for the data.
+influencePlot(ols_step)
+```
+
+From the above plot we can see that the observations 402 might be an outlier and 913, 576 high hat values. combined these these points might be infuential to our model. 
+
+generally the points with hat values above 2(p+1)/n  are considered to have leverage with the fitted model.
+
+for our model the hat value is  2(p+1)/n = 0.15
+
+```{r}
+plot(hatvalues(ols_step))
+abline(abline(h = 0.17))
+```
+
+From the above plot we can see there are quite a few observations which are above the line.
+we might want to look at them. they can be good/bad leverage points.
+
+```{r}
+hatvalues(ols_step)[(hatvalues(ols_step)>0.17)]
+```
+
+These are the observations with large leverage.
+
+```{r}
+plot(y = rstudent(ols_step), x = cookd(ols_step))
+```
+
+We can see from the above graph there are no influential points. since cook's d is less than 1.
+
+```{r}
+outlierTest(ols_step)
+```
+
+Outlier test also indicates observation 402 as an outlier.
+
+Now that we see some influential points in the data indicated by outlierTest, Hat values and studentized Residual, We will remove those points from the train data and see if there is any improvement with our model. 
+
+```{r, echo=TRUE}
+newcompletedData <- compdata[-c(402, 913, 576),]
+newtrainx<-newcompletedData[101:997,]
+newvalx<-newcompletedData[1:100,]
+newy<-newcompletedData[101:997,69]
+
+ols_step_modified <-  lm(formula(model_step), data = newtrainx)
+ols_step_sum_modified <- summary(ols_step_modified)
+
+ols_step_modified.pred <- predict(ols_step_modified, newvalx)
+cat("RMSE test of Best OLS Model By removing outliers in test data is",sqrt(mean(ols_step_modified.pred - (valx$SalePrice))^2))
+cat("Adjusted R - Squared is", ols_step_sum_modified$adj.r.squared)
+```
+
+## b) PLS Model
+
+PLS model is done on the best model found in part (a)
+
+```{r, include=FALSE}
+# Running the model and not including the output in the knit document.
+library(pls)
+model_pls <- plsr(SalePrice ~ ., data = compdata, method = "kernelpls", validation = "CV")
+summary(model_pls)
+loadings(model_pls)
+plot(model_pls, ncomp = 5, asp = 1, line = TRUE)
+plot(model_pls, ncomp = 8, asp = 1, line = TRUE)
+plot(model_pls, ncomp = 13, asp = 1, line = TRUE)
+plot(model_pls, ncomp = 20, asp = 1, line = TRUE)
+plot(model_pls, plottype = "scores", comps = 1:20)
+
+beta_pls <- drop(coef(model_pls))
+resid_pls <- drop(model_pls$resid)[,4]
+rss_pls <- sum(resid_pls^2)/(67-4)
+```
+
+```{r}
+cat("RMSE of PLS in train data is ",model_pls$residuals^2 %>% mean %>% abs %>% sqrt)
+```
+
+### This graph shows RMSE vs Number of Components.
+
+```{r}
+RMSEPPLS <- RMSEP(model_pls, validation = 'CV')
+plot(RMSEPPLS)
+```
+
+
+Final PLS Model
+
+```{r}
+#Prediction:
+pls.pred <- predict(model_pls, valx, ncomp=1:20)
+avg_pls <- rowMeans(pls.pred)
+cat("RMSE test of PLS in test data is",sqrt(mean(avg_pls - (valx$SalePrice))^2))
+```
+
+We have taken 20 principal components to predict the value of Sale Price cause these 20 components explains the most variance and found that the value of 
+
+CV RMSE is 0.00110
+
+Which is very good and better than that we found for OLS.
+
+### (c) LASSO Model
+
+```{r, include=FALSE}
+#Lasso Regression
+#Setting up Training parameters
+tp <- trainControl(method="repeatedcv",
+                   number=5,
+                   repeats=5)
+set.seed(123) 
+
+model_lasso <- train(SalePrice~.,
+                     method="glmnet",
+                     metric="RMSE",
+                     maximize=FALSE,
+                     trControl=tp,
+                     data = trainx,
+                     tuneGrid=expand.grid(alpha=1,
+                                          lambda=c(1,0.1,0.05,0.01,seq(0.009,0.001,-0.001),
+                                                   0.00075,0.0005,0.0001))) 
+
+mean(model_lasso$resample$RMSE)
+coef <- data.frame(coef.name = dimnames(coef(model_lasso$finalModel,s=model_lasso$bestTune$lambda))[[1]], 
+                   coef.value = matrix(coef(model_lasso$finalModel,s=model_lasso$bestTune$lambda)))
+coef <- coef[-1,]
+picked_features <- nrow(filter(coef,coef.value!=0))
+not_picked_features <- nrow(filter(coef,coef.value==0))
+
+cat("Lasso picked",picked_features,"variables and eliminated the other",
+    not_picked_features,"variables\n")
+
+#Prediction using lasso
+pred_lasso<- exp(predict(model_lasso,newdata=valx)) - 1
+
+```
+
+### Penality value with RMSE
+
+#### The parameter tuning with RMSE Chart
+
+
+```{r}
+model_lasso
+```
+
+Plot of RMSE Vs Regulation Parameter.
+
+```{r}
+plot(model_lasso)
+```
+
+Except the first few the RMSE is increasing with the Regularization Parameter.
+
+### variables with non - zero lasso_coefficeintsw
+
+```{r}
+lasso_coefficients <- coef(model_lasso$finalModel, model_lasso$bestTune$lambda)
+x <- lasso_coefficients[which(lasso_coefficients!=0), ]
+
+lasso_coefficients
+```
+
+## CV RMSE LASSO Model
+
+```{r}
+mean(model_lasso$resample$RMSE)
+```
+
+## (d) ELASTIC NET & LASSO (GLMNET)
+
+These are the two models that we have used to predict the sale prices in the competion, The model with lasso and method glmnet gave us the best results.
+
+```{r, eval=FALSE, include=FALSE}
+#Enet
+enet_fit <- train(SalePrice~.,data = compdata,method= "enet")
+finalpred2<- predict(enet_fit,testdata)
+write.csv(exp(finalpred),"FinalPredictions2.csv")
+summary(exp(finalpred))
+
+testdata<-read.csv("housingTest2.csv",header=T)
+test<-mice(testdata, m=1, method='cart', printFlag=FALSE)
+testdata<- mice::complete(test)
+
+finalpred<-  predict(las_fit,testdata)
+write.csv(exp(finalpred),"FinalPredictions.csv")
+summary(exp(finalpred))
+```
+
+Our Lasso Model
+
+```{r, eval=FALSE, include=FALSE}
+
+# train control using repeated cv
+tp <- trainControl(method="repeatedcv",
+                   number=5,
+                   repeats=5)
+set.seed(123) 
+
+# training the model using train control and method glmnet
+model_lasso <- train(SalePrice~.,
+                     method="glmnet",
+                     metric="RMSE",
+                     maximize=FALSE,
+                     trControl=tp,
+                     data = trainx ,
+                     tuneGrid=expand.grid(alpha=1,
+                                          lambda=c(1,0.1,0.05,0.01,seq(0.009,0.001,-0.001),
+                                                   0.00075,0.0005,0.0001)))
+
+preds <- exp(predict(model_lasso,newdata=testdata)) - 1  # predicting the sale price
+write.csv(preds,"FinalPredictions.csv") # writing it into csv file
+
+```
+
+This model is the one where we remove outliers that were specified in part (a)
+
+```{r, eval=FALSE, include=FALSE}
+newcompletedData <- compdata[-c(402, 913, 576),]
+newtrainx<-newcompletedData[101:997,]
+newvalx<-newcompletedData[1:100,]
+newy<-newcompletedData[101:997,69]
+
+tp <- trainControl(method="repeatedcv",
+                   number=5,
+                   repeats=5)
+set.seed(123) 
+
+
+model_lasso2 <- train(SalePrice~.,
+                     method="glmnet",
+                     metric="RMSE",
+                     maximize=FALSE,
+                     trControl=tp,
+                     data =newtrainx ,
+                     tuneGrid=expand.grid(alpha=1,
+                                          lambda=c(1,0.1,0.05,0.01,seq(0.009,0.001,-0.001),
+                                                   0.00075,0.0005,0.0001)))
+model_lasso2
+preds2 <- exp(predict(model_lasso2,newdata=testdata)) - 1
+write.csv(preds2,"FinalPredictions2.csv")
+```
