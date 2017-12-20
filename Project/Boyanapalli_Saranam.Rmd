@@ -1,0 +1,242 @@
+---
+title: "Medical Appointment Show or No-Show Prediction"
+author: "Anusha Saranam, Sai Saketh Boyanapalli"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE, tidy=TRUE)
+```
+
+```{r Packages required}
+library(bnclassify)
+library(car)
+library(caret)
+library(caTools)
+library(dplyr)
+library(GGally)
+library(ggplot2)
+library(gridExtra)
+library(lubridate)
+library(MASS)
+library(memisc)
+library(doParallel)
+library(outliers)
+library(reshape2)
+library(scales)
+library(snow)
+library(tidyr)
+library(VIM)
+```
+
+```{r import data}
+#Reading the data file
+appoint_data <- read.csv("data.csv", header = TRUE, stringsAsFactors = FALSE)
+```
+
+```{r preliminary Data Exploration}
+str(appoint_data)
+colnames(appoint_data) #col names
+summary(appoint_data) #Basic summary of the data
+aggr(appoint_data) #Finding the missing values (if any) in the data
+```
+
+```{r feature engineering}
+# creating a variable for days to appointment by taking difference between scheduled day and appointment day
+appoint_data$days_to_appointment <- ceiling(difftime(appoint_data$AppointmentDay, appoint_data$ScheduledDay, units = "days"))
+appoint_data$weekday <- parse_date_time(appoint_data$AppointmentDay, orders=c('Ymd HMS','dmY HM'))
+appoint_data$weekday <- weekdays(appoint_data$weekday)
+appoint_data$weekday <- as.factor(appoint_data$weekday)
+appoint_data$ScheduledTime = format(appoint_data$ScheduledTime, "%H:%M:%S")
+#Convertng the data into factors as most of them are binary. This conversion helps for further analysis.
+appoint_data$Gender <- factor(appoint_data$Gender)
+appoint_data$Scholarship <- factor(appoint_data$Scholarship)
+appoint_data$Hipertension <- factor(appoint_data$Hipertension)
+appoint_data$Diabetes <- factor(appoint_data$Diabetes)
+appoint_data$Alcoholism <- factor(appoint_data$Alcoholism)
+appoint_data$Handcap <- factor(appoint_data$Handcap)
+appoint_data$SMS_received <- factor(appoint_data$SMS_received)
+appoint_data$No.show <- factor(appoint_data$No.show)
+appoint_data$Neighbourhood <- factor(appoint_data$Neighbourhood)
+```
+
+```{r Data Exploration}
+#look at patient Id, Appointment Id
+uniquePatient <- unique(appoint_data$PatientId)
+length(uniquePatient)
+uniqueAppointment <- unique(appoint_data$AppointmentID)
+length(uniqueAppointment)
+#A look at variables
+#Plot showing different variables and their data distribution ranges. There may be a chance of multiple outliers in Patient ID, Appointment ID. But They have no significance as they are ID's
+ggplot(melt(appoint_data), aes(factor(variable), value)) + geom_boxplot() + facet_wrap(~variable, scale="free") +ggtitle("Boxplot of Different Variables") + theme_bw()
+
+#Histogram for all variables in our Dataset
+#Data distribution can be studied from here. Everything looks fine except for Age which is a right skewed distribution (positively skewed)
+ggplot(melt(appoint_data), aes(value)) + geom_histogram() + facet_wrap(~variable, scale="free") +
+  ggtitle("Histogram for each the Variable") + theme_bw()
+
+#Explore Age
+# Exploring Patient's Age
+summary(appoint_data$Age)
+#removing the outliers or mistyped data because age can't be less than zero
+appoint_data <- appoint_data %>% filter(Age >= 0 && Age <= 100)
+ggplot(data = appoint_data, aes(x = Age)) + geom_histogram(binwidth = 10) + theme_bw()
+
+#show/No show with respect to Age
+No_showAge <- appoint_data %>% group_by(Age) %>% count(No.show)
+No_showAge <- spread(No_showAge, key = No.show, value = n)
+#rename columns
+colnames(No_showAge) <- c("Age", "Noshow", "Show")
+No_showAge <- No_showAge %>% mutate(Noshowrate = round(Noshow / (Noshow + Show), digits = 3))
+#Age - Noshowrate
+ggplot(data = No_showAge) + aes(x = Age, y = Noshowrate) + geom_freqpoly(stat = "identity", aes(colour=Age)) +
+  scale_color_continuous()
+#Scholarship
+# Exploring Scholarship
+summary(appoint_data$Scholarship)
+#No show analysis
+No_showScholar <- appoint_data %>% group_by(Scholarship) %>% count(No.show)
+No_showScholar <- spread(No_showScholar, key = No.show, value = n)
+#rename columns
+colnames(No_showScholar) <- c("Scholarship", "Noshow", "Show")
+No_showScholar <- No_showScholar %>% mutate(Noshowrate = round(Noshow / (Noshow + Show), digits = 3))
+# Scholarship - Noshowrate
+ggplot(data = No_showScholar) + aes(x = Scholarship, y = Noshowrate, fill = Scholarship) +
+  geom_bar(stat = "identity") + scale_color_continuous() + scale_fill_brewer(palette = "Dark2")
+# user defined Function
+custom_barplot <- function(x.var) {
+  ggplot(data = appoint_data, aes_string(x = x.var, fill = "No.show")) + geom_bar() + scale_fill_brewer(palette = "Dark2")
+} 
+# Data Exploration
+custom_barplot("Scholarship")
+custom_barplot("Alcoholism")
+custom_barplot("Diabetes")
+custom_barplot("Handcap")
+#we can see that only few observations are present for handicap factors 2,3,4 which indicates the no of handicaps of a person.
+custom_barplot("Handcap")
+custom_barplot("SMS_received")
+custom_barplot("Hipertension")
+custom_barplot("Neighbourhood")
+custom_barplot("weekday")
+# handcap factors converting
+#Converting factors 2, 3, 4 to 1 to maintain consistency
+levels(appoint_data$Handcap)[levels(appoint_data$Handcap)=="2"] <- "1"
+levels(appoint_data$Handcap)[levels(appoint_data$Handcap)=="3"] <- "1"
+levels(appoint_data$Handcap)[levels(appoint_data$Handcap)=="4"] <- "1"
+#removing patient Id, Appointment Id
+#Removing the ID's from the data
+appoint_data <- appoint_data[, !names(appoint_data) %in% c("PatientId", "AppointmentID")]
+# removing scheduledDay, AppointmentDay
+Clf_data <- appoint_data[ , !names(appoint_data) %in% c("ScheduledDay", "AppointmentDay")]
+levels(appoint_data$No.show)[levels(appoint_data$No.show)=="1"] <- "0"
+levels(appoint_data$No.show)[levels(appoint_data$No.show)=="2"] <- "1"
+# splitting data
+# Splitting the data into train and test data
+set.seed(41)
+splitr = sample.split(Clf_data$No.show, SplitRatio = 0.5)
+train  = subset(Clf_data,splitr == TRUE)
+test   = subset(Clf_data,splitr == FALSE)
+# Correlation plot
+corTrain = train
+for(i in 1:ncol(train))
+{
+  if(is.factor(corTrain[,i]))
+  {
+    corTrain[,i] = as.numeric(corTrain[,i]) #convert the factor levels into numeric.
+  }
+}
+sapply(corTrain, class)
+corTrain$days_to_appointment <- as.numeric(corTrain$days_to_appointment)
+corMat = cor(corTrain, use="everything")
+corrplot::corrplot(corMat, method = "square", type = "full", tl.cex = 0.8, insig = "pch") #order of correlation strength
+```
+
+```{r Modelling Algorithms}
+#Basic logistic regression model to predict the No.Show rate
+set.seed(38)
+cvcontrol <- trainControl(method="repeatedcv", number=5, repeats = 3, classProbs = TRUE, summaryFunction = twoClassSummary)
+cl1 <- makeCluster(4, type = "SOCK") #Using clusters to speed up through parallel processing
+registerDoParallel(cl1)
+system.time(lrmodel <- train(No.show ~ ., data=train, method="glm", metric = "ROC", family = "binomial", trControl = cvcontrol))
+lrPred <- predict(lrmodel, newdata = test)
+summary(lrPred)
+#stopCluster(cl1)
+
+#Decision Trees
+dtgrid <- expand.grid(cp=c(5,10,15,20))
+#cl2 <- makeCluster(4, type = "SOCK") #Using clusters to speed up through parallel processing
+#registerDoParallel(cl2)
+system.time(dtmodel <- train(No.show ~ ., data = train, method = 'rpart', trControl = cvcontrol, tuneGrid = dtgrid ))
+dtPred <- predict(dtmodel, newdata = test)
+xtab <- table(dtPred, test$No.show)
+confusionMatrix(xtab)
+#stopCluster(cl2)
+saveRDS(dtmodel, "DTmodel")
+
+#kNN
+knngrid <- expand.grid(k = c(5, 50, 200, 300, 320))
+#cl3 <- makeCluster(4, type = "SOCK") #Using clusters to speed up through parallel processing
+#registerDoParallel(cl3)
+#system.time(knnFit1 <- train(No.show ~ ., data = train,
+#                 method = "knn",
+#                 preProcess = c("center", "scale"),
+#                 tuneLength = 1,
+#                 trControl = trainControl(method = "cv"), tuneGrid = knngrid))
+#knnFit1Pred = predict(knnFit1, newdata = test)
+#xtab <- table(knnFit1Pred, test$No.show)
+#confusionMatrix(xtab)
+#stopCluster(cl3)
+
+#knn2
+#cl4 <- makeCluster(4, type = "SOCK") #Using clusters to speed up through parallel processing
+#registerDoParallel(cl4)
+system.time(knnFit2 <- train(No.show ~ ., data = train,
+                 method = "knn",
+                 preProcess = c("center", "scale"),
+                 tuneLength = 5,
+trControl = trainControl(method = "boot"), tuneGrid = knngrid))
+knnFit2Pred = predict(knnFit2, newdata = test)
+xtab <- table(knnFit2Pred, test$No.show)
+confusionMatrix(xtab)
+#stopCluster(cl4)
+saveRDS(knnFit2, "KNN_model_2")
+
+#Neuralnet
+nnetgrid <- expand.grid(size = c(10), decay = c(0.1))
+#cl5 <- makeCluster(4, type = "SOCK") #Using clusters to speed up through parallel processing
+#registerDoParallel(cl5)
+system.time(nnetFit <- train(No.show ~ ., data = train,
+                 method = "nnet",
+                 preProcess = "range",
+                 tuneLength = 2,
+                 trace = FALSE,
+                 maxit = 100))
+nnetPred = predict(nnetFit, newdata = test)
+xtab <- table(nnetPred, test$No.show)
+confusionMatrix(xtab)
+#stopCluster(cl5)
+saveRDS(nnetFit, "NnetFit")
+
+#naive-bayes
+nbgrid <- expand.grid(smooth = c(0.001))
+#cl6 <- makeCluster(4, type = "SOCK")
+#registerDoParallel(cl6)
+system.time(nbFit <- train(No.show ~ ., data = train, method = "nbDiscrete", trControl = cvcontrol, tuneGrid = nbgrid))
+nbPred = predict(nbFit, newdata = test)
+xtab <- table(nbPred, test$No.show)
+confusionMatrix(xtab)
+saveRDS(nbFit, "Naive-bayes")
+
+#xgboost
+xgbgrid = expand.grid(eta=c(0.05), max_depth=c(4), colsample_bytree=1, subsample=1, nrounds=1501, gamma=0, min_child_weight=5)
+#cl7 <- makeCluster(4, type = "SOCK")
+#registerDoParallel(cl7)
+system.time(xgbfit <- train(No.show ~ ., data = train, method = "xgbTree", trControl = cvcontrol, tuneGrid = xgbgrid))
+xgbPred = predict(xgbFit, newdata = test)
+xtab <- table(xgbPred, test$No.show)
+confusionMatrix(xtab)
+stopCluster(cl1)
+saveRDS(xgbfit, "xgBoost")
+```
+
+#END
